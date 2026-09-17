@@ -1,0 +1,63 @@
+==================================================================
+ 증거자료 : ⑦ /var/log/agent-app/monitor.log 누적 기록 확인
+ 일시     : 2026-09-17 14:49:58 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+※ 로그 포맷: [YYYY-MM-DD HH:MM:SS] PID:... CPU:..% MEM:..% DISK_USED:..%
+
+$ sudo ls -l /var/log/agent-app/
+------------------------------------------------------------------
+   total 176
+   -rw-rw----+ 1 agent-admin agent-core 73957 Sep 17 14:49 agent-app.out
+   -rw-rw----+ 1 agent-admin agent-core 91018 Sep 17 14:49 agent_app.log
+   -rw-rw----+ 1 agent-admin agent-core  1080 Sep 17 14:49 monitor-cron.out
+   -rw-rw----+ 1 agent-admin agent-core  1801 Sep 17 14:49 monitor.log
+   [exit=0]
+
+$ sudo wc -l /var/log/agent-app/monitor.log
+------------------------------------------------------------------
+   29 /var/log/agent-app/monitor.log
+   [exit=0]
+
+※ --- 최근 20 라인 ---
+
+$ sudo tail -20 /var/log/agent-app/monitor.log
+------------------------------------------------------------------
+   [2026-09-17 14:44:42] PID:4961 CPU:0.6% MEM:8.0% DISK_USED:1%
+   [2026-09-17 14:44:46] PID:4961 CPU:0.5% MEM:8.3% DISK_USED:1%
+   [2026-09-17 14:44:50] PID:4961 CPU:0.6% MEM:8.3% DISK_USED:1%
+   [2026-09-17 14:44:54] PID:4961 CPU:0.6% MEM:8.6% DISK_USED:1%
+   [2026-09-17 14:44:58] PID:4961 CPU:0.4% MEM:8.8% DISK_USED:1%
+   [2026-09-17 14:45:02] PID:4961 CPU:0.6% MEM:8.9% DISK_USED:1%
+   [2026-09-17 14:45:06] PID:4961 CPU:0.6% MEM:9.2% DISK_USED:1%
+   [2026-09-17 14:45:10] PID:4961 CPU:0.5% MEM:9.4% DISK_USED:1%
+   [2026-09-17 14:45:14] PID:4961 CPU:0.2% MEM:9.9% DISK_USED:1%
+   [2026-09-17 14:45:18] PID:4961 CPU:0.8% MEM:10.2% DISK_USED:1%
+   [2026-09-17 14:45:22] PID:4961 CPU:0.0% MEM:9.3% DISK_USED:1%
+   [2026-09-17 14:45:40] PID:4961 CPU:0.3% MEM:8.4% DISK_USED:1%
+   [2026-09-17 14:45:41] PID:4961 CPU:9.2% MEM:8.5% DISK_USED:1%
+   [2026-09-17 14:45:42] PID:4961 CPU:37.5% MEM:8.5% DISK_USED:1%
+   [2026-09-17 14:46:30] PID:4961 CPU:0.8% MEM:8.0% DISK_USED:1%
+   [2026-09-17 14:46:40] PID:5454 CPU:0.5% MEM:7.5% DISK_USED:1%
+   [2026-09-17 14:46:42] PID:5454 CPU:36.6% MEM:7.9% DISK_USED:1%
+   [2026-09-17 14:47:02] PID:5454 CPU:0.8% MEM:8.9% DISK_USED:1%
+   [2026-09-17 14:48:02] PID:5454 CPU:0.4% MEM:7.8% DISK_USED:1%
+   [2026-09-17 14:49:02] PID:5454 CPU:0.2% MEM:9.1% DISK_USED:1%
+   [exit=0]
+
+※ --- 로그 파일 용량 관리 정책 ---
+
+※ monitor.sh 의 rotate_log() 가 매 실행마다 크기를 확인해 10MB 초과 시 회전한다. monitor.log -> .1 -> .2 ... -> .9 로 밀어내며 최대 10 개(원본 + .1~.9)만 보관하고 .9 를 초과한 것은 삭제한다.
+
+$ sudo grep -n 'MAX_SIZE\|MAX_FILES' /home/agent-admin/agent-app/bin/monitor.sh | head -4
+------------------------------------------------------------------
+   41:MAX_SIZE=$((10 * 1024 * 1024))   # 10 MB
+   42:MAX_FILES=10                     # monitor.log + .1 ~ .9
+   55:    [ "$size" -lt "$MAX_SIZE" ] && return 0
+   57:    local last=$((MAX_FILES - 1))
+   [exit=0]
+
+=========================== 기록 끝 ===============================

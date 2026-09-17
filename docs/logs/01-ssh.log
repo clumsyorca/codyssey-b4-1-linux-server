@@ -1,0 +1,50 @@
+==================================================================
+ 증거자료 : ① SSH 포트 변경(20022) 및 Root 원격 접속 차단 확인
+ 일시     : 2026-09-17 14:40:48 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+$ grep -nE '^(Port|PermitRootLogin)' /etc/ssh/sshd_config
+------------------------------------------------------------------
+   14:Port 20022
+   33:PermitRootLogin no
+   [exit=0]
+
+$ sudo sshd -T | grep -iE '^(port|permitrootlogin)'
+------------------------------------------------------------------
+   port 20022
+   permitrootlogin no
+   [exit=0]
+
+$ sudo systemctl is-active ssh
+------------------------------------------------------------------
+   active
+   [exit=0]
+
+$ sudo ss -tulnp | grep sshd
+------------------------------------------------------------------
+   tcp   LISTEN 0      128                 0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=3773,fd=3))           
+   tcp   LISTEN 0      128                    [::]:20022         [::]:*    users:(("sshd",pid=3773,fd=4))           
+   [exit=0]
+
+※ 아래는 실제 접속 시험 결과
+
+$ ssh -o StrictHostKeyChecking=no -o BatchMode=yes -p 20022 root@localhost whoami
+------------------------------------------------------------------
+   root@localhost: Permission denied (publickey,password).
+   [exit=255]
+
+※ 위 Permission denied 는 정상 - PermitRootLogin no 가 동작함을 증명
+
+$ ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 -p 22 agent-admin@localhost whoami
+------------------------------------------------------------------
+   ssh: connect to host localhost port 22: Connection refused
+   [exit=255]
+
+※ 위 Connection refused 는 정상 - 구 포트 22 가 더 이상 열려있지 않음을 증명
+
+※ 일반 계정(agent-admin) 의 20022 접속 성공은 docs/screenshots/ssh-login.png 참조
+
+=========================== 기록 끝 ===============================

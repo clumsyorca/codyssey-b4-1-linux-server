@@ -1,0 +1,97 @@
+==================================================================
+ 증거자료 : ② 방화벽(UFW) 활성화 및 20022/tcp, 15034/tcp 만 허용 확인
+ 일시     : 2026-09-17 14:41:02 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+$ sudo ufw status verbose
+------------------------------------------------------------------
+   Status: active
+   Logging: on (low)
+   Default: deny (incoming), allow (outgoing), deny (routed)
+   New profiles: skip
+   
+   To                         Action      From
+   --                         ------      ----
+   20022/tcp                  ALLOW IN    Anywhere                   # SSH
+   15034/tcp                  ALLOW IN    Anywhere                   # agent-app
+   20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+   15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # agent-app
+   
+   [exit=0]
+
+$ sudo ufw status numbered
+------------------------------------------------------------------
+   Status: active
+   
+        To                         Action      From
+        --                         ------      ----
+   [ 1] 20022/tcp                  ALLOW IN    Anywhere                   # SSH
+   [ 2] 15034/tcp                  ALLOW IN    Anywhere                   # agent-app
+   [ 3] 20022/tcp (v6)             ALLOW IN    Anywhere (v6)              # SSH
+   [ 4] 15034/tcp (v6)             ALLOW IN    Anywhere (v6)              # agent-app
+   
+   [exit=0]
+
+$ sudo systemctl is-active ufw
+------------------------------------------------------------------
+   inactive
+   [exit=3]
+
+$ sudo systemctl is-enabled ufw
+------------------------------------------------------------------
+   enabled
+   [exit=0]
+
+※ 기본 정책 deny(incoming) / allow(outgoing) - 화이트리스트 방식(최소 권한 원칙)
+
+$ sudo iptables -L ufw-user-input -n --line-numbers
+------------------------------------------------------------------
+   Chain ufw-user-input (1 references)
+   num  target     prot opt source               destination         
+   1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:20022
+   2    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:15034
+   [exit=0]
+
+$ sudo ss -tulnp | grep -E '20022|15034'
+------------------------------------------------------------------
+   tcp   LISTEN 1      1                   0.0.0.0:15034      0.0.0.0:*    users:(("agent_app",pid=2552,fd=4))      
+   tcp   LISTEN 0      128                 0.0.0.0:20022      0.0.0.0:*    users:(("sshd",pid=3773,fd=3))           
+   tcp   LISTEN 0      128                    [::]:20022         [::]:*    users:(("sshd",pid=3773,fd=4))           
+   [exit=0]
+
+※ 방화벽 활성화 이후에도 SSH(20022) 와 agent-app(15034) 은 정상 LISTEN
+
+=========================== 기록 끝 ===============================
+
+==================================================================
+ [보강] 호스트(macOS) → VM 외부 접속 시험
+ 일시     : 2026-09-17 14:41:12 KST
+ 대상 IP  : 192.168.139.141
+ 목적     : 방화벽이 실제로 외부 트래픽을 차단하는지 검증
+==================================================================
+
+$ nc -vz -G 3 192.168.139.141 20022
+------------------------------------------------------------------
+   Connection to 192.168.139.141 port 20022 [tcp/*] succeeded!
+
+$ nc -vz -G 3 192.168.139.141 15034
+------------------------------------------------------------------
+   Connection to 192.168.139.141 port 15034 [tcp/*] succeeded!
+
+$ nc -vz -G 3 192.168.139.141 22
+------------------------------------------------------------------
+   nc: connectx to 192.168.139.141 port 22 (tcp) failed: Operation timed out
+
+$ nc -vz -G 3 192.168.139.141 8080
+------------------------------------------------------------------
+   nc: connectx to 192.168.139.141 port 8080 (tcp) failed: Operation timed out
+
+※ 20022/15034 는 succeeded(허용), 22/8080 은 timed out(차단).
+※ 방화벽 없이 포트만 닫혀 있으면 즉시 'Connection refused' 가 반환된다.
+   'timed out' 은 UFW 가 패킷을 응답 없이 DROP 하고 있다는 증거이며,
+   이는 공격자에게 포트/호스트 존재 여부조차 노출하지 않는 방식이다.
+
+=========================== 기록 끝 ===============================

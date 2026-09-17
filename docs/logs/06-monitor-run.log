@@ -1,0 +1,127 @@
+==================================================================
+ 증거자료 : ⑥ monitor.sh 실행 결과(프로세스/포트/리소스/경고) 확인
+ 일시     : 2026-09-17 14:46:29 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+※ 배치 정책 — 경로: $AGENT_HOME/bin/monitor.sh / 소유자: agent-dev / 그룹: agent-core / 권한: 750
+
+$ sudo ls -l /home/agent-admin/agent-app/bin/monitor.sh
+------------------------------------------------------------------
+   -rwxr-x--- 1 agent-dev agent-core 10118 Sep 17 14:43 /home/agent-admin/agent-app/bin/monitor.sh
+   [exit=0]
+
+$ nproc
+------------------------------------------------------------------
+   11
+   [exit=0]
+
+※ [시나리오 1] 정상 상태 — 전 항목 통과, exit 0
+
+$ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
+------------------------------------------------------------------
+   ====== SYSTEM MONITOR RESULT ======
+   
+   [HEALTH CHECK]
+   Checking process 'agent_app'... [OK] (PID: 4961)
+   Checking port 15034... [OK]
+   
+   [FIREWALL CHECK]
+   Checking firewall (ufw)... [OK] (active)
+   
+   [RESOURCE MONITORING]
+   CPU Usage  : 0.8%
+   MEM Usage  : 8.0%
+   DISK Used  : 1%
+   
+   [OK] All resource usage within thresholds.
+   
+   [INFO] Log appended: /var/log/agent-app/monitor.log
+   [exit=0]
+
+※ [시나리오 2] 프로세스 중단 — Health Check 실패는 서비스 중단이므로 즉시 exit 1
+
+$ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
+------------------------------------------------------------------
+   ====== SYSTEM MONITOR RESULT ======
+   
+   [HEALTH CHECK]
+   Checking process 'agent_app'... [FAIL]
+   [CRITICAL] Process 'agent_app' is not running.
+   [exit=1]
+
+※ exit=1 확인. 포트 점검까지 가지 않고 프로세스 단계에서 중단됨.
+
+※ 앱 복구
+
+$ pgrep -x agent_app
+------------------------------------------------------------------
+   5454
+   5456
+   [exit=0]
+
+※ [시나리오 3] 방화벽 비활성 — [WARNING] 만 출력하고 스크립트는 계속 진행(exit 0)
+
+$ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
+------------------------------------------------------------------
+   ====== SYSTEM MONITOR RESULT ======
+   
+   [HEALTH CHECK]
+   Checking process 'agent_app'... [OK] (PID: 5454)
+   Checking port 15034... [OK]
+   
+   [FIREWALL CHECK]
+   Checking firewall (ufw)... [WARNING]
+   [WARNING] Firewall (ufw) is INACTIVE.
+   
+   [RESOURCE MONITORING]
+   CPU Usage  : 0.5%
+   MEM Usage  : 7.5%
+   DISK Used  : 1%
+   
+   [OK] All resource usage within thresholds.
+   
+   [INFO] Log appended: /var/log/agent-app/monitor.log
+   [exit=0]
+
+※ exit=0 확인. 방화벽 비활성은 서비스 중단이 아니므로 기록만 남기고 진행하도록 설계 — 모든 이상을 긴급으로 처리하면 실제 사고를 놓치게 된다.
+
+※ 방화벽 복구
+
+$ sudo ufw status | head -3
+------------------------------------------------------------------
+   Status: active
+   
+   To                         Action      From
+   [exit=0]
+
+※ [시나리오 4] 임계값 초과 경고 — CPU > 20%
+
+※ 본 VM 은 11 코어이므로 앱이 1 코어를 100% 점유해도 시스템 전체로는 약 9% 에 그쳐 CPU 임계값에 도달하지 않는다. 임계값 판정 로직 자체를 검증하기 위해 4 코어 인위 부하(yes 프로세스)를 발생시킨 상태에서 측정한다.
+
+$ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
+------------------------------------------------------------------
+   ====== SYSTEM MONITOR RESULT ======
+   
+   [HEALTH CHECK]
+   Checking process 'agent_app'... [OK] (PID: 5454)
+   Checking port 15034... [OK]
+   
+   [FIREWALL CHECK]
+   Checking firewall (ufw)... [OK] (active)
+   
+   [RESOURCE MONITORING]
+   CPU Usage  : 36.6%
+   MEM Usage  : 7.9%
+   DISK Used  : 1%
+   
+   [WARNING] CPU threshold exceeded (36.6% > 20%)
+   
+   [INFO] Log appended: /var/log/agent-app/monitor.log
+   [exit=0]
+
+※ CPU 임계값 경고가 정상 발동하고, 경고 이후에도 로그 기록까지 완료(exit 0)되는 것을 확인.
+
+=========================== 기록 끝 ===============================

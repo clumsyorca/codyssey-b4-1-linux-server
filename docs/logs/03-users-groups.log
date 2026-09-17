@@ -1,0 +1,32 @@
+==================================================================
+ 증거자료 : ③ 계정/그룹 생성 확인
+ 일시     : 2026-09-17 14:28:22 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+$ getent group agent-common agent-core
+------------------------------------------------------------------
+   agent-common:x:1000:agent-admin,agent-dev,agent-test
+   agent-core:x:1001:agent-admin,agent-dev
+   [exit=0]
+
+$ id agent-admin
+------------------------------------------------------------------
+   uid=1000(agent-admin) gid=1002(agent-admin) groups=1002(agent-admin),1000(agent-common),1001(agent-core)
+   [exit=0]
+
+$ id agent-dev
+------------------------------------------------------------------
+   uid=1001(agent-dev) gid=1003(agent-dev) groups=1003(agent-dev),1000(agent-common),1001(agent-core)
+   [exit=0]
+
+$ id agent-test
+------------------------------------------------------------------
+   uid=1002(agent-test) gid=1004(agent-test) groups=1004(agent-test),1000(agent-common)
+   [exit=0]
+
+※ agent-test 는 agent-core 에 미포함 — API 키/로그 접근 차단을 위한 의도된 설계
+
+=========================== 기록 끝 ===============================

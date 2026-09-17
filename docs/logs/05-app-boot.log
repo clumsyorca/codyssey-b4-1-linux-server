@@ -1,0 +1,73 @@
+==================================================================
+ 증거자료 : ⑤ 앱 Boot Sequence 5단계 [OK] 및 Agent READY 확인
+ 일시     : 2026-09-17 14:28:07 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+$ sudo cat /home/agent-admin/agent-app/agent.env
+------------------------------------------------------------------
+   export AGENT_HOME=/home/agent-admin/agent-app
+   export AGENT_PORT=15034
+   export AGENT_UPLOAD_DIR=$AGENT_HOME/upload_files
+   export AGENT_KEY_PATH=$AGENT_HOME/api_keys
+   export AGENT_LOG_DIR=/var/log/agent-app
+   [exit=0]
+
+$ sudo -iu agent-admin env | grep AGENT | sort
+------------------------------------------------------------------
+   AGENT_HOME=/home/agent-admin/agent-app
+   AGENT_KEY_PATH=/home/agent-admin/agent-app/api_keys
+   AGENT_LOG_DIR=/var/log/agent-app
+   AGENT_PORT=15034
+   AGENT_UPLOAD_DIR=/home/agent-admin/agent-app/upload_files
+   [exit=0]
+
+$ sudo ls -l /home/agent-admin/agent-app/api_keys/
+------------------------------------------------------------------
+   total 8
+   -rw-r-----+ 1 agent-admin agent-core 19 Sep 17 14:16 secret.key
+   -rw-r-----+ 1 agent-admin agent-core 19 Sep 17 14:11 t_secret.key
+   [exit=0]
+
+$ sudo head -20 /var/log/agent-app/agent-app.out
+------------------------------------------------------------------
+   >>> Starting Agent Boot Sequence...
+   [1/5] Checking User Account               [OK]
+      ... Running as service user 'agent-admin' (uid=1000)
+   [2/5] Verifying Environment Variables     [OK]
+      ... All required Envs correct
+   [3/5] Checking Required Files             [OK]
+      ... Verified 'secret.key' with correct key string.
+   [4/5] Checking Port Availability          [OK]
+      ... Port 15034 is available.
+   [5/5] Verifying Log Permission            [OK]
+      ... Log directory is writable: /var/log/agent-app
+   ------------------------------------------------------------
+   All Boot Checks Passed!
+   Agent READY
+   2026-09-17 14:25:09,579 [INFO] [SafetyGuard] Process priority lowered (nice=10).
+   2026-09-17 14:25:09,579 [INFO] Agent listening at port 15034
+   2026-09-17 14:25:09,579 [INFO] === Agent Worker Started ===
+   2026-09-17 14:25:09,579 [INFO]    > Cycle: 0 -> 256MB/Lv10 -> 0
+   2026-09-17 14:25:09,579 [INFO] --- Step Info: Mode=UP, CPU Lv=1, Mem=0MB ---
+   2026-09-17 14:25:09,581 [INFO] [Memory] Increasing... (+25 MB) Total: 25 MB
+   [exit=0]
+
+$ pgrep -a agent_app
+------------------------------------------------------------------
+   2550 /home/agent-admin/agent-app/agent_app
+   2552 /home/agent-admin/agent-app/agent_app
+   [exit=0]
+
+$ sudo ss -tulnp | grep 15034
+------------------------------------------------------------------
+   tcp   LISTEN 0      1                   0.0.0.0:15034      0.0.0.0:*    users:(("agent_app",pid=2552,fd=4))      
+   [exit=0]
+
+※ 과제 문서는 AGENT_KEY_PATH 를 t_secret.key 파일 경로로 명시하나, 실제 바이너리는 디렉토리 경로와 파일명 secret.key 를 요구함. 앱 에러 메시지를 근거로 실제 동작에 맞추고 t_secret.key 도 함께 보존.
+
+※ 앱은 nohup + & 로 백그라운드 상시 실행 — monitor.sh/cron 검증 구간 동안 서비스가 유지되어야 하므로.
+
+=========================== 기록 끝 ===============================

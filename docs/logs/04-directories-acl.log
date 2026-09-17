@@ -1,0 +1,115 @@
+==================================================================
+ 증거자료 : ④ 디렉토리 구조 및 권한(ACL 포함) 확인
+ 일시     : 2026-09-17 14:28:22 KST
+ 호스트   : agent
+ OS       : Ubuntu 22.04.5 LTS / aarch64
+ 실행계정 : tokomon
+==================================================================
+
+$ sudo ls -ld /home/agent-admin /home/agent-admin/agent-app /home/agent-admin/agent-app/upload_files /home/agent-admin/agent-app/api_keys /home/agent-admin/agent-app/bin /var/log/agent-app
+------------------------------------------------------------------
+   drwxr-x---+ 1 agent-admin agent-admin  98 Sep 17 14:16 /home/agent-admin
+   drwxr-x---  1 agent-admin agent-common 82 Sep 17 14:11 /home/agent-admin/agent-app
+   drwxrws---+ 1 agent-admin agent-core   44 Sep 17 14:16 /home/agent-admin/agent-app/api_keys
+   drwxr-s---  1 agent-dev   agent-core    0 Sep 17 11:01 /home/agent-admin/agent-app/bin
+   drwxrws---+ 1 agent-admin agent-common 18 Sep 17 14:00 /home/agent-admin/agent-app/upload_files
+   drwxrws---+ 1 agent-admin agent-core   52 Sep 17 14:25 /var/log/agent-app
+   [exit=0]
+
+$ sudo getfacl -p /home/agent-admin
+------------------------------------------------------------------
+   # file: /home/agent-admin
+   # owner: agent-admin
+   # group: agent-admin
+   user::rwx
+   group::r-x
+   group:agent-common:r-x
+   mask::r-x
+   other::---
+   
+   [exit=0]
+
+$ sudo getfacl -p /home/agent-admin/agent-app/upload_files
+------------------------------------------------------------------
+   # file: /home/agent-admin/agent-app/upload_files
+   # owner: agent-admin
+   # group: agent-common
+   # flags: -s-
+   user::rwx
+   group::rwx
+   group:agent-common:rwx
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:group::rwx
+   default:group:agent-common:rwx
+   default:mask::rwx
+   default:other::---
+   
+   [exit=0]
+
+$ sudo getfacl -p /home/agent-admin/agent-app/api_keys
+------------------------------------------------------------------
+   # file: /home/agent-admin/agent-app/api_keys
+   # owner: agent-admin
+   # group: agent-core
+   # flags: -s-
+   user::rwx
+   group::rwx
+   group:agent-core:rwx
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:group::rwx
+   default:group:agent-core:rwx
+   default:mask::rwx
+   default:other::---
+   
+   [exit=0]
+
+$ sudo getfacl -p /var/log/agent-app
+------------------------------------------------------------------
+   # file: /var/log/agent-app
+   # owner: agent-admin
+   # group: agent-core
+   # flags: -s-
+   user::rwx
+   group::rwx
+   group:agent-core:rwx
+   mask::rwx
+   other::---
+   default:user::rwx
+   default:group::rwx
+   default:group:agent-core:rwx
+   default:mask::rwx
+   default:other::---
+   
+   [exit=0]
+
+$ sudo -u agent-test touch /home/agent-admin/agent-app/upload_files/hello.txt
+------------------------------------------------------------------
+   [exit=0]
+
+$ sudo -u agent-test ls /home/agent-admin/agent-app/api_keys
+------------------------------------------------------------------
+   ls: cannot open directory '/home/agent-admin/agent-app/api_keys': Permission denied
+   [exit=2]
+
+※ 위 Permission denied 는 정상 — agent-test 의 보안 디렉토리 접근 차단이 동작함을 증명
+
+$ sudo -u agent-dev ls -a /home/agent-admin/agent-app/api_keys
+------------------------------------------------------------------
+   .
+   ..
+   secret.key
+   t_secret.key
+   [exit=0]
+
+$ sudo ls -l /home/agent-admin/agent-app/upload_files/hello.txt
+------------------------------------------------------------------
+   -rw-rw----+ 1 agent-test agent-common 0 Sep 17 14:28 /home/agent-admin/agent-app/upload_files/hello.txt
+   [exit=0]
+
+※ hello.txt 의 그룹이 agent-common, 권한이 rw-rw---- 인 것은 setgid + default ACL 상속이 동작한 증거
+
+=========================== 기록 끝 ===============================

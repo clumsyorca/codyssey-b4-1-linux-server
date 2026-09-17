@@ -1,0 +1,22 @@
+===== STEP 3: 앱 배치 =====
+Thu Sep 17 14:09:43 KST 2026
+OS: Linux  아키텍처: aarch64  선택: agent-app-linux-arm64
+
+total 7364
+-rwxr-x---  1 agent-admin agent-core   7537848 Sep 17 14:08 agent_app
+drwxrws---+ 1 agent-admin agent-core         0 Sep 17 11:01 api_keys
+drwxr-s---  1 agent-dev   agent-core         0 Sep 17 11:01 bin
+drwxrws---+ 1 agent-admin agent-common      18 Sep 17 14:00 upload_files
+
+--- 환경변수 미설정 상태 실행 (실패 예상) ---
+Traceback (most recent call last):
+  File "linux_pbl_v2.py", line 456, in <module>
+  File "linux_pbl_v2.py", line 156, in check_required_files
+  File "<frozen posixpath>", line 76, in join
+TypeError: expected str, bytes or os.PathLike object, not NoneType
+[PYI-2330:ERROR] Failed to execute script 'linux_pbl_v2' due to unhandled exception!
+>>> Starting Agent Boot Sequence...
+[1/5] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1000)
+[2/5] Verifying Environment Variables     [FAIL]
+   >>> Critical Env 'AGENT_HOME' is missing.
