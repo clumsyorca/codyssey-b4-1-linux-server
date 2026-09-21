@@ -539,9 +539,6 @@ cron이 실제로 호출했음을 보여주는 `syslog`의 CRON 기록을 함께
 | ⑦ | monitor.log 누적 기록 | [07-monitor-cumulative.log](docs/logs/07-monitor-cumulative.log) | — |
 | ⑧ | crontab 매분 실행 및 자동 실행 | [08-cron.log](docs/logs/08-cron.log) | — |
 
-보너스 과제(`report.sh`, 시간 기반 압축/아카이브)는 수행하지 않았다.
-필수 항목인 로그 용량 관리(10MB / 10개)는 `monitor.sh`에 구현되어 있다.
-
 ---
 
 ## 5. 저장소 구조
