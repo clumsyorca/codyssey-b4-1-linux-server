@@ -526,7 +526,149 @@ cron이 실제로 호출했음을 보여주는 `syslog`의 CRON 기록을 함께
 
 ---
 
-## 4. 필수 증거 자료 체크리스트
+## 4. 검증 방법
+
+구성 결과는 설정 파일을 읽는 것만으로 확인할 수 없다. 설정을 고쳤지만 서비스를
+재시작하지 않은 경우, 규칙은 등록되었으나 실제로는 적용되지 않은 경우가 있기 때문이다.
+아래는 각 요구사항이 실제로 동작하는지 확인하는 방법이다. 모두 VM 안에서 실행한다.
+
+검증은 애플리케이션이 구동 중인 상태를 전제로 한다.
+
+```bash
+pgrep -x agent_app
+```
+
+PID 두 개(부모·자식)가 출력되면 구동 중이다. 구동되어 있지 않다면 아래로 기동한다.
+
+```bash
+sudo -iu agent-admin bash -lc 'nohup "$AGENT_HOME/agent_app" >> "$AGENT_LOG_DIR/agent-app.out" 2>&1 &'
+```
+
+---
+
+### ① SSH 포트 변경 및 Root 원격 접속 차단
+
+```bash
+sudo sshd -T | grep -iE '^(port|permitrootlogin)'
+sudo ss -tulnp | grep sshd
+ssh -p 20022 root@localhost
+```
+
+`sshd -T`는 설정 파일의 내용이 아니라 **실제 적용된 최종 값**을 출력하므로
+`port 20022`, `permitrootlogin no`가 나오면 재시작까지 반영된 상태다.
+`ss`로 `0.0.0.0:20022` LISTEN을 확인하고, root 접속 시도가 `Permission denied`로
+거부되는지 확인한다.
+
+### ② 방화벽 활성화 및 허용 포트
+
+```bash
+sudo ufw status verbose
+```
+
+`Status: active`와 `Default: deny (incoming)`이 확인되어야 하며,
+허용 규칙은 20022와 15034 두 항목만 존재해야 한다.
+
+규칙 등록과 실제 차단은 별개이므로, 외부 호스트에서 접속을 시도해 검증하는 것이 확실하다.
+허용 포트는 연결되고 그 외 포트는 `Operation timed out`으로 응답이 없어야 한다.
+
+### ③ 계정 및 그룹 구성
+
+```bash
+getent group agent-common agent-core
+id agent-admin ; id agent-dev ; id agent-test
+```
+
+`getent group`은 그룹에 속한 사람을, `id`는 사람이 속한 그룹을 보여준다.
+두 방향이 일치하는지 교차 확인한다. `agent-common`에는 세 계정 전원이,
+`agent-core`에는 `agent-admin`과 `agent-dev`만 포함되어야 한다.
+
+### ④ 디렉토리 권한 및 ACL
+
+```bash
+sudo ls -ld /home/agent-admin/agent-app /home/agent-admin/agent-app/* /var/log/agent-app
+sudo getfacl -p /home/agent-admin/agent-app/api_keys
+```
+
+권한 표기 끝의 `+`는 ACL이 적용되었다는 표시이고, 그룹 자리의 `s`는 setgid가
+켜져 있다는 표시다.
+
+권한 설정은 허용되는 접근보다 **차단되는 접근**을 확인하는 것이 중요하다.
+
+```bash
+sudo -u agent-test ls /home/agent-admin/agent-app/api_keys
+```
+
+`Permission denied`가 반환되어야 정상이며, 이것이 보안 디렉토리 분리가
+실제로 동작한다는 증거다.
+
+### ⑤ 앱 Boot Sequence 및 Agent READY
+
+```bash
+sudo head -20 /var/log/agent-app/agent-app.out
+```
+
+기동 시점의 출력이 이 파일에 기록되어 있다. `[1/5]`부터 `[5/5]`까지 모두 `[OK]`이고
+마지막에 `Agent READY`가 출력된다.
+
+이미 구동 중인 상태에서 앱을 다시 실행하면 `[4/5]` 단계에서
+`Port 15034 is already in use`로 실패한다. 이는 포트 중복 점유를 막는 정상 동작이다.
+
+### ⑥ monitor.sh 배치 및 동작
+
+```bash
+sudo ls -l /home/agent-admin/agent-app/bin/monitor.sh
+sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh ; echo "exit=$?"
+```
+
+소유자 `agent-dev`, 그룹 `agent-core`, 권한 `750`으로 배치되어 있으며,
+`agent-admin`으로 실행했을 때 전 항목이 `[OK]`이고 `exit=0`으로 종료된다.
+
+비정상 상태에서의 동작은 프로세스를 중단시켜 확인할 수 있다.
+
+```bash
+sudo pkill -x agent_app
+sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh ; echo "exit=$?"
+```
+
+`[CRITICAL] Process 'agent_app' is not running.`과 함께 `exit=1`로 종료되며,
+포트 점검까지 진행하지 않고 중단된다. 확인 후에는 애플리케이션을 다시 기동한다.
+
+### ⑦ monitor.log 누적 기록
+
+```bash
+sudo tail -10 /var/log/agent-app/monitor.log
+```
+
+`[YYYY-MM-DD HH:MM:SS] PID:.. CPU:..% MEM:..% DISK_USED:..%` 형식으로
+매분 한 줄씩 누적된다.
+
+### ⑧ cron 등록 및 자동 실행
+
+```bash
+sudo crontab -u agent-admin -l
+sudo grep CRON /var/log/syslog | grep agent-admin | tail -3
+sudo wc -l /var/log/agent-app/monitor.log
+```
+
+crontab에 `* * * * *`로 등록되어 있고, syslog에 1분 간격 호출 기록이 남는다.
+마지막 명령을 1분 간격으로 두 번 실행하면 라인 수가 증가한다.
+
+`monitor.log`의 증가만으로는 수동 실행과 구분되지 않으므로,
+cron이 실제로 호출했음을 보여주는 syslog 기록을 함께 확인한다.
+
+### ⑨ 로그 용량 관리
+
+```bash
+sudo grep -n "MAX_SIZE\|MAX_FILES" /home/agent-admin/agent-app/bin/monitor.sh
+sudo sed -n '/^rotate_log/,/^}/p' /home/agent-admin/agent-app/bin/monitor.sh
+```
+
+상한값과 회전 로직을 확인할 수 있다. 10MB를 초과하면 `.9`를 삭제하고
+번호를 하나씩 밀어 원본과 `.1`~`.9` 총 10개를 유지한다.
+
+---
+
+## 5. 필수 증거 자료 체크리스트
 
 | # | 항목 | 로그 | 스크린샷 |
 |---|---|---|---|
@@ -541,7 +683,7 @@ cron이 실제로 호출했음을 보여주는 `syslog`의 CRON 기록을 함께
 
 ---
 
-## 5. 저장소 구조
+## 6. 저장소 구조
 
 ```
 B4-1/
@@ -560,7 +702,7 @@ B4-1/
 
 ---
 
-## 6. 환경 재현
+## 7. 환경 재현
 
 [`scripts/setup.sh`](scripts/setup.sh) 하나로 계정 생성부터 SSH·방화벽·cron까지 복원된다.
 멱등하게 작성되어 여러 번 실행해도 안전하고, `uname -m`으로 아키텍처를 감지하므로
@@ -579,11 +721,11 @@ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
 
 ---
 
-## 7. 과제 목표 점검
+## 8. 과제 목표 점검
 
 과제가 제시한 "이 과제를 마친 후 스스로 설명할 수 있어야 하는 것" 6가지에 대한 정리.
 
-### 7-1. SSH 포트 변경과 Root 원격 접속 차단이 왜 기본 보안인가
+### 8-1. SSH 포트 변경과 Root 원격 접속 차단이 왜 기본 보안인가
 
 포트 22와 계정명 `root`는 모든 리눅스에 공통으로 존재한다. 그래서 자동화된 공격 도구는
 아무 서버나 22번 포트로 접속을 시도하고 `root` 계정의 비밀번호만 반복해서 대입한다.
@@ -595,7 +737,7 @@ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh
 있다. 그러나 무의미한 공격 시도와 로그 소음을 줄여 **실제 위협을 식별하기 쉽게** 만든다는
 점에서 기본 보안에 해당한다.
 
-### 7-2. "필요 포트만 허용"하는 방화벽 정책을 구성하고 검증하는 법
+### 8-2. "필요 포트만 허용"하는 방화벽 정책을 구성하고 검증하는 법
 
 **구성** — 기본 정책을 `deny incoming`으로 두고 필요한 포트만 명시적으로 여는
 화이트리스트 방식이다. 차단해야 할 대상은 무한하지만 열어야 할 대상은 유한하므로,
@@ -619,7 +761,7 @@ sudo ufw enable                    # 포트 허용 후에 활성화
 `timed out`이어야 방화벽이 동작하는 것이며, 이 방식은 공격자에게 호스트·포트의 존재
 여부조차 알려주지 않는다.
 
-### 7-3. 역할 기반 계정/그룹과 ACL로 공유/보안 디렉토리를 분리하는 이유
+### 8-3. 역할 기반 계정/그룹과 ACL로 공유/보안 디렉토리를 분리하는 이유
 
 **역할 기반으로 나누는 이유** — 권한은 직무 수행에 필요한 최소 범위로만 부여해야 한다.
 QA 담당자가 API 키나 운영 로그를 볼 이유가 없다. 이렇게 나눠두면 계정 하나가 탈취되거나
@@ -639,7 +781,7 @@ ACL은 "기존 권한은 두고 이 그룹에게만 추가 규칙을 건다"는 
 sudo setfacl -m g:agent-common:r-x /home/agent-admin
 ```
 
-### 7-4. 환경 변수로 실행 환경을 고정하는 이유와 검증 방법
+### 8-4. 환경 변수로 실행 환경을 고정하는 이유와 검증 방법
 
 **이유** — 경로와 포트를 코드에 직접 박아넣으면 개발 서버와 운영 서버에서 코드가 달라진다.
 환경 변수로 빼면 **같은 바이너리가 환경만 바꿔 동작**한다. 설정이 코드 밖으로 나오므로
@@ -657,7 +799,7 @@ sudo -iu agent-admin env | grep AGENT     # 로그인 셸에서
 아닌 `agent.env` 파일 한 곳에 정의하고, 로그인 셸과 `monitor.sh`가 각각 그 파일을 읽도록
 구성했다.
 
-### 7-5. 쉘 스크립트로 상태를 수집하고 로그로 남겨 문제를 추적하는 흐름
+### 8-5. 쉘 스크립트로 상태를 수집하고 로그로 남겨 문제를 추적하는 흐름
 
 ```
 ① 살아 있는가   프로세스 존재 → 포트 LISTEN      실패 시 exit 1
@@ -681,7 +823,7 @@ sudo -iu agent-admin env | grep AGENT     # 로그인 셸에서
 "언제부터 수치가 이상해졌는가"를 특정할 수 있다. 로그가 없으면 원인 분석이 추측에
 의존하게 되고, 원인을 모르므로 같은 장애가 반복된다.
 
-### 7-6. crontab 주기 실행과 로그 보존 정책이 필요한 이유
+### 8-6. crontab 주기 실행과 로그 보존 정책이 필요한 이유
 
 **주기 실행이 필요한 이유** — 사람이 매분 서버 상태를 확인할 수는 없다. 점검 자체를
 자동화해야 하며, 자동화하면 사람이 보지 않는 새벽 시간의 상태도 기록으로 남는다.
