@@ -62,6 +62,10 @@
 
 ### ① SSH 포트 변경(20022) 및 Root 원격 접속 차단
 
+SSH는 멀리 있는 서버에 접속해 명령을 내리는 통로다. 기본 포트인 22번과 기본 계정인 `root`는
+모든 리눅스에 공통으로 존재하기 때문에, 자동화된 공격 도구가 가장 먼저 노리는 지점이다.
+이 두 가지를 바꾸는 것부터 시작했다.
+
 **설정**
 
 ```bash
@@ -73,6 +77,12 @@ sudo sshd -t                    # 문법 검사
 sudo systemctl restart ssh
 ```
 
+설정 파일은 고치기 전에 `.bak`으로 백업했다. 되돌릴 수단 없이 시스템 설정을 건드리면
+문제가 생겼을 때 복구할 방법이 없다.
+
+재시작 전에 `sshd -t`로 문법을 검사한 것이 중요하다. 설정에 오류가 있는 상태로 재시작하면
+sshd가 기동에 실패하는데, 원격 서버였다면 그 순간 접속 경로 자체가 사라져 복구가 불가능해진다.
+
 **확인**
 
 ```
@@ -81,22 +91,29 @@ port 20022
 permitrootlogin no
 ```
 
+`sshd -T`는 설정 파일이 아니라 **실제 적용된 최종 값**을 출력한다. 파일만 확인하면
+재시작을 하지 않아 옛 설정으로 동작 중인 경우를 놓친다.
+
+설정값 확인에 그치지 않고 실제로 접속을 시도해 검증했다.
+
 | 접속 시험 | 결과 |
 |---|---|
 | `ssh -p 20022 agent-admin@localhost` | 성공 |
 | `ssh -p 20022 root@localhost` | `Permission denied` |
 | `ssh -p 22 agent-admin@localhost` | `Connection refused` |
 
-**설명 포인트**
-- 포트 22와 계정명 root는 모든 리눅스에 공통이라 자동화된 공격의 기본 표적이다. 포트를 옮기면 무차별 스캔 대부분이 비껴가고, root를 막으면 공격자가 계정명부터 알아내야 한다.
-- 근본 방어는 아니지만 공격 표면과 로그 소음을 줄여 실제 위협을 식별하기 쉽게 만든다.
-- 재시작 전 `sshd -t`를 반드시 수행한다. 설정 오류 상태로 재시작하면 sshd가 기동에 실패하고, 원격 서버라면 그 순간 접속 경로가 사라진다.
+여기서 차단한 것은 **root의 원격 로그인**이며 root 계정 자체를 없앤 것이 아니다.
+일반 계정으로 접속한 뒤 `sudo`를 사용하는 경로는 그대로 열려 있다. 한 단계를 거치게
+만듦으로써 누가 어떤 관리자 명령을 실행했는지가 `sudo` 로그에 기록된다.
 
 **증거** — [`docs/logs/01-ssh.log`](docs/logs/01-ssh.log) · [ssh-login.png](docs/screenshots/ssh-login.png)
 
 ---
 
 ### ② 방화벽(UFW) 활성화 및 20022/tcp, 15034/tcp만 허용
+
+SSH 설정이 "방 번호를 바꾼 것"이라면 방화벽은 "건물 정문에 문지기를 세우는 것"이다.
+포트가 열려 있다는 것과 방화벽이 통과시킨다는 것은 별개의 문제다.
 
 **설정**
 
@@ -106,8 +123,17 @@ sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow 20022/tcp comment 'SSH'
 sudo ufw allow 15034/tcp comment 'agent-app'
-sudo ufw enable                 # 포트 허용 후에 활성화
+sudo ufw enable
 ```
+
+기본 정책을 `deny incoming`으로 두고 필요한 포트만 명시적으로 여는 화이트리스트 방식을 택했다.
+차단해야 할 대상은 65535개 포트만큼 무한하지만 열어야 할 대상은 두 개뿐이다.
+"위험한 것을 막는" 방식은 목록이 끝나지 않지만 "필요한 것만 여는" 방식은 목록이 유한하다.
+
+나가는 방향(`outgoing`)은 허용했다. 패키지 설치처럼 서버가 먼저 요청하는 통신은
+막을 이유가 없기 때문이다.
+
+포트를 먼저 허용하고 나서 방화벽을 켜는 순서를 지켰다. 반대로 하면 그 순간 SSH 연결이 끊긴다.
 
 **확인**
 
@@ -121,7 +147,8 @@ To                  Action      From
 15034/tcp           ALLOW IN    Anywhere        # agent-app
 ```
 
-호스트(macOS) → VM 외부 접속 시험
+규칙이 등록되어 있다는 것만으로는 실제 동작을 보장하지 못하므로,
+호스트(macOS)에서 VM으로 직접 접속을 시도해 검증했다.
 
 | 포트 | 결과 | 판정 |
 |---|---|---|
@@ -130,16 +157,18 @@ To                  Action      From
 | 22 | `Operation timed out` | 차단 |
 | 8080 | `Operation timed out` | 차단 |
 
-**설명 포인트**
-- 기본 정책을 `deny incoming`으로 두고 필요한 포트만 여는 화이트리스트 방식이다. 차단할 대상은 무한하지만 열어야 할 대상은 유한하다.
-- 검증은 `ufw status`만으로 부족하고 외부에서 실제 접속을 시도해야 한다. 방화벽 없이 포트만 닫혀 있으면 `Connection refused`가 즉시 반환된다. `timed out`은 UFW가 패킷에 응답하지 않고 DROP한다는 뜻이며, 공격자에게 호스트·포트의 존재조차 노출하지 않는다.
-- 포트를 먼저 허용하고 방화벽을 켜는 순서를 지켜야 한다. 반대로 하면 SSH 연결이 끊긴다.
+응답의 종류가 중요하다. 방화벽 없이 포트만 닫혀 있으면 커널이 즉시 RST를 보내
+`Connection refused`가 반환된다. `timed out`은 방화벽이 패킷에 **응답하지 않고 버리고 있다**는
+뜻이며, 이 방식은 공격자에게 호스트나 포트의 존재 여부조차 알려주지 않는다.
 
 **증거** — [`docs/logs/02-firewall.log`](docs/logs/02-firewall.log) · [ufw-status.png](docs/screenshots/ufw-status.png)
 
 ---
 
 ### ③ 계정/그룹 생성
+
+여러 사람이 한 서버를 함께 쓰는 상황을 가정해 역할별로 계정을 나누고,
+역할이 겹치는 범위를 그룹으로 묶었다.
 
 **설정**
 
@@ -151,6 +180,9 @@ sudo useradd -m -s /bin/bash -G agent-common,agent-core agent-dev
 sudo useradd -m -s /bin/bash -G agent-common            agent-test
 ```
 
+`-m`은 홈 디렉토리를 만들고, `-s /bin/bash`는 로그인 시 사용할 셸을 지정한다.
+`-G`로 소속 그룹을 지정했다.
+
 **확인**
 
 ```
@@ -159,16 +191,26 @@ agent-common:x:1000:agent-admin,agent-dev,agent-test
 agent-core:x:1001:agent-admin,agent-dev
 ```
 
-**설명 포인트**
-- `agent-test`만 `agent-core`에서 제외된다. QA 담당자가 API 키와 운영 로그에 접근할 이유가 없다.
-- 권한을 직무에 필요한 최소 범위로 부여하면 사고가 나도 피해 범위가 그 역할 안으로 제한된다.
-- 그룹이 존재하는 이유는 "나 / 나머지 전부" 두 단계만으로는 일부에게만 열어주는 통제가 불가능하기 때문이다.
+`id`는 "사람 → 그룹" 방향이고 `getent group`은 "그룹 → 사람" 방향이다.
+양쪽을 모두 확인해 일치하는지 교차 검증했다. 출력의 uid/gid 숫자는 계정을 만든 순서대로
+붙는 일련번호일 뿐 의미가 없으며, 환경이 달라지면 값도 달라진다.
+
+세 계정 중 `agent-test`만 `agent-core`에서 제외한 것이 이 구성의 핵심이다.
+QA 담당자가 API 키나 운영 로그에 접근할 업무상 이유가 없기 때문이다.
+권한을 직무에 필요한 최소 범위로 제한해 두면, 계정이 탈취되거나 실수가 발생해도
+피해 범위가 그 역할의 권한 안으로 제한된다.
+
+그룹이라는 중간 단계가 필요한 이유는, 권한을 "소유자 / 나머지 전부" 두 단계로만 나누면
+일부에게만 열어주는 통제가 불가능하기 때문이다. `api_keys`를 `agent-dev`에게 열어주려면
+"나머지 전부"에게 열어야 하고 그러면 `agent-test`도 함께 보게 된다.
 
 **증거** — [`docs/logs/03-users-groups.log`](docs/logs/03-users-groups.log)
 
 ---
 
 ### ④ 디렉토리 구조 및 권한(ACL 포함)
+
+공유해도 되는 디렉토리와 제한해야 할 디렉토리를 나누고, 각각에 맞는 권한을 부여했다.
 
 **설정**
 
@@ -183,12 +225,37 @@ sudo chmod 750  $AGENT_HOME
 sudo chmod 2770 $AGENT_HOME/upload_files $AGENT_HOME/api_keys /var/log/agent-app
 sudo chmod 2750 $AGENT_HOME/bin
 
-sudo setfacl -m  g:agent-common:r-x /home/agent-admin          # 상위 통행권
+sudo setfacl -m  g:agent-common:r-x /home/agent-admin
 sudo setfacl -m  g:agent-common:rwx $AGENT_HOME/upload_files
 sudo setfacl -dm g:agent-common:rwx $AGENT_HOME/upload_files
 sudo setfacl -m  g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 sudo setfacl -dm g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 ```
+
+`chown`은 "누구의 것인지"를, `chmod`는 "그 누구가 무엇을 할 수 있는지"를 정한다.
+둘은 한 쌍이며 하나만으로는 의미가 없다.
+
+권한 숫자는 읽기 4, 쓰기 2, 실행 1을 더해 만든다. `7`은 전부 가능(`rwx`),
+`5`는 읽기와 실행만(`r-x`), `0`은 차단(`---`)이다.
+디렉토리에서 `x`는 "실행"이 아니라 "통과"를 뜻한다.
+
+앞에 붙은 `2`는 setgid다. 이 디렉토리에 새로 생기는 파일이 생성자의 개인 그룹이 아니라
+디렉토리의 그룹을 물려받게 한다. 이것이 없으면 `agent-dev`가 공유 폴더에 만든 파일의 그룹이
+`agent-dev`가 되어 `agent-test`가 읽지 못한다.
+
+`bin`만 `2750`으로 둔 것은 의도적이다. 소유자인 `agent-dev`는 스크립트를 수정할 수 있지만,
+그룹인 `agent-admin`은 `r-x`라 읽고 실행만 가능하다. cron으로 실행하는 데는 `r-x`면 충분하고,
+운영자가 운영 중 스크립트를 변경하는 경로는 차단된다.
+
+ACL이 필요했던 이유는 상위 디렉토리에 있다. `AGENT_HOME`의 상위인 `/home/agent-admin`은
+`drwxr-x---  agent-admin:agent-admin`이라 `agent-dev`와 `agent-test`가 통과할 수 없었다.
+디렉토리의 `x`가 없으면 하위 권한을 아무리 정확히 설정해도 진입 자체가 불가능하다.
+그런데 일반 권한은 그룹을 하나만 지정할 수 있어 여기에 `agent-common`을 추가할 방법이 없었다.
+ACL은 "기존 권한은 그대로 두고 이 그룹에게만 규칙을 더한다"를 표현할 수 있어 이 한계를 보완한다.
+
+`-d`(default) 옵션은 권한 상속을 담당한다. setgid가 그룹은 물려주지만 권한은 물려주지 않아,
+default ACL이 없으면 새 파일이 umask를 따라 `rw-r--r--`가 되어 그룹이 쓰기를 하지 못한다.
+setgid와 default ACL이 함께 있어야 공유가 완성된다.
 
 **확인**
 
@@ -200,12 +267,8 @@ sudo setfacl -dm g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 | `agent-dev` → `api_keys` 접근 | 성공 | ✅ |
 | 신규 파일 속성 | `agent-common` / `rw-rw----` | ✅ |
 
-**설명 포인트**
-- 소유권(`chown`)은 "누구인지"를, 권한(`chmod`)은 "그 누구가 무엇을 할 수 있는지"를 정한다. 둘은 세트로 써야 의미가 생긴다.
-- 선행 비트 `2`는 **setgid**다. 이 디렉토리에 새로 생기는 파일이 생성자의 개인 그룹이 아니라 디렉토리의 그룹을 상속한다. 없으면 `agent-dev`가 공유 폴더에 만든 파일을 `agent-test`가 읽지 못한다.
-- `bin`을 `2750`으로 둔 것은 `agent-dev`(소유자)만 스크립트를 수정하고 `agent-admin`(그룹)은 읽기·실행만 하게 하기 위해서다. cron 실행에는 `r-x`면 충분하다.
-- **ACL이 반드시 필요했던 지점**: `AGENT_HOME`의 상위인 `/home/agent-admin`은 `drwxr-x--- agent-admin:agent-admin`이다. 디렉토리에서 `x`는 "통과"를 뜻하므로 `agent-dev`/`agent-test`는 하위 권한과 무관하게 진입 자체가 불가능했다. 일반 권한은 그룹을 하나만 지정할 수 있어 여기에 `agent-common`을 추가할 방법이 없고, ACL로만 해결된다.
-- `-d`(default) 옵션은 **권한 상속**을 담당한다. setgid가 그룹을 상속시키더라도 권한은 umask(022)를 따라 `rw-r--r--`가 되어 그룹이 쓰기를 못 한다. setgid + default ACL이 함께 있어야 공유가 완성된다.
+보안 설정은 "되는 것"보다 "안 되는 것"을 증명해야 하므로,
+차단되어야 할 접근이 실제로 차단되는지를 함께 시험했다.
 
 **증거** — [`docs/logs/04-directories-acl.log`](docs/logs/04-directories-acl.log)
 
@@ -213,22 +276,26 @@ sudo setfacl -dm g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 
 ### ⑤ 앱 Boot Sequence 5단계 [OK] 및 "Agent READY"
 
+제공된 애플리케이션을 배치하고, 실행에 필요한 환경을 구성했다.
+
 **설정**
 
 ```bash
-# 아키텍처 자동 감지 후 배치. 파일명은 agent_app 으로 통일한다.
 case "$(uname -m)" in
   x86_64)        APP=agent-app-linux-x86   ;;
   aarch64|arm64) APP=agent-app-linux-arm64 ;;
 esac
 sudo install -o agent-admin -g agent-core -m 750 "app/$APP" "$AGENT_HOME/agent_app"
 
-# 키 파일
 echo 'agent_api_key_test' | sudo -u agent-admin tee $AGENT_HOME/api_keys/secret.key
 sudo chmod 640 $AGENT_HOME/api_keys/secret.key
 ```
 
-환경 변수는 `$AGENT_HOME/agent.env` 한 곳에 정의한다.
+제공 바이너리가 x86과 arm64로 나뉘어 있어 `uname -m`으로 아키텍처를 감지해 배치하되,
+배치 시 파일명을 `agent_app`으로 통일했다. 그렇게 하지 않으면 이후 `monitor.sh`가 찾아야 할
+프로세스명이 환경마다 달라진다.
+
+환경 변수는 `$AGENT_HOME/agent.env` 파일 한 곳에 정의했다.
 
 ```bash
 export AGENT_HOME=/home/agent-admin/agent-app
@@ -237,6 +304,14 @@ export AGENT_UPLOAD_DIR=$AGENT_HOME/upload_files
 export AGENT_KEY_PATH=$AGENT_HOME/api_keys
 export AGENT_LOG_DIR=/var/log/agent-app
 ```
+
+경로와 포트를 코드에 직접 넣으면 환경이 바뀔 때마다 코드를 고쳐야 한다.
+환경 변수로 분리하면 같은 바이너리가 환경만 바꿔 동작한다.
+
+셸 프로필이 아니라 별도 파일로 뺀 것은 cron 때문이다. cron은 로그인 셸이 아니어서
+`~/.profile`을 읽지 않는다. 환경 변수를 셸 프로필에만 두면 수동 실행은 성공하고
+cron 실행만 실패하는, 원인을 찾기 어려운 문제가 생긴다.
+`agent.env`를 기준으로 두고 로그인 셸과 `monitor.sh`가 각각 읽어가도록 했다.
 
 **확인**
 
@@ -251,17 +326,18 @@ All Boot Checks Passed!
 Agent READY
 ```
 
-상시 구동은 백그라운드로 실행한다.
+앱은 기동 시 다섯 가지를 검사한다. 루트가 아닌 서비스 계정으로 실행 중인지,
+환경 변수가 올바른지, 키 파일이 존재하고 내용이 맞는지, 포트가 비어 있는지,
+로그 디렉토리에 쓸 수 있는지다. 즉 이 앱은 앞선 모든 설정을 검사해 주는 역할도 한다.
+
+루트로 실행하지 않은 이유는, 애플리케이션이 침해당하면 공격자가 그 프로세스의 권한을
+그대로 획득하기 때문이다. root로 구동하면 앱 취약점 하나가 서버 전체 장악으로 이어진다.
+
+상시 구동은 백그라운드로 실행했다. 터미널 세션에 묶어두면 이후 작업 중 서비스가 유지되지 않는다.
 
 ```bash
 sudo -iu agent-admin bash -lc 'nohup "$AGENT_HOME/agent_app" >> "$AGENT_LOG_DIR/agent-app.out" 2>&1 &'
 ```
-
-**설명 포인트**
-- 경로·포트를 코드에 박아넣으면 환경마다 코드를 고쳐야 한다. 환경 변수로 빼면 같은 바이너리가 환경만 바꿔 동작한다.
-- 환경 변수를 셸 프로필이 아니라 **파일 하나**로 분리한 이유는 cron 때문이다. cron은 로그인 셸이 아니어서 `~/.profile`을 읽지 않는다. 셸 프로필에만 두면 수동 실행은 성공하고 cron 실행만 실패한다. `agent.env`를 진실의 원천으로 두고 셸과 `monitor.sh`가 각각 읽어간다.
-- 루트로 실행하지 않는 이유는, 앱이 침해당하면 공격자가 그 프로세스의 권한을 그대로 얻기 때문이다. root로 구동하면 앱 취약점 하나가 서버 전체 장악으로 이어진다.
-- `nohup ... &`로 띄우는 이유는 터미널 세션에 묶어두면 방화벽 설정·monitor.sh 검증 구간 동안 서비스가 유지되지 않기 때문이다.
 
 **증거** — [`docs/logs/05-app-boot.log`](docs/logs/05-app-boot.log) · [app-ready.png](docs/screenshots/app-ready.png)
 
@@ -271,12 +347,19 @@ sudo -iu agent-admin bash -lc 'nohup "$AGENT_HOME/agent_app" >> "$AGENT_LOG_DIR/
 
 소스: [`scripts/monitor.sh`](scripts/monitor.sh)
 
+서버 상태를 스스로 점검하고 기록하는 스크립트다. 매 실행마다 다섯 단계를 수행한다.
+서비스가 살아 있는지 확인하고, 방화벽 상태를 점검하고, 자원 사용률을 수집하고,
+임계값을 넘으면 경고하고, 마지막으로 로그에 한 줄을 남긴다.
+
 **배치 정책**
 
 ```
 경로   $AGENT_HOME/bin/monitor.sh
 소유자 agent-dev      그룹 agent-core      권한 750
 ```
+
+`agent-admin`은 `agent-core` 소속이므로 그룹 권한 `r-x`로 실행할 수 있다.
+쓰기 권한이 없어 수정은 불가능하다.
 
 **실행 결과**
 
@@ -300,16 +383,24 @@ DISK Used  : 1%
 [INFO] Log appended: /var/log/agent-app/monitor.log
 ```
 
-**실패 등급 구분** — 이 스크립트의 핵심 설계
+이 스크립트의 핵심 설계는 **"중단시킬 실패"와 "기록만 할 이상"을 나눈 것**이다.
 
 | 점검 | 이상 시 동작 | 근거 |
 |---|---|---|
-| 프로세스 부재 | `exit 1` | 서비스 중단 = 즉시 대응할 사고 |
+| 프로세스 부재 | `exit 1` | 서비스 중단 — 지금 사용자가 쓸 수 없다 |
 | 포트 미개방 | `exit 1` | 프로세스가 살아도 서비스 불가 |
-| 방화벽 비활성 | `[WARNING]` 후 계속 | 보안 이슈이나 서비스는 정상 |
-| 임계값 초과 | `[WARNING]` 후 계속 | 추세 관찰 대상 |
+| 방화벽 비활성 | `[WARNING]` 후 계속 | 보안 이슈이나 서비스는 동작한다 |
+| 임계값 초과 | `[WARNING]` 후 계속 | 추세 관찰 대상이다 |
 
-실제 재현 결과
+판단 기준은 "지금 서비스가 멈췄는가"다. 모든 이상을 긴급으로 처리하면 알림이 과다해져
+사람들이 알림을 무시하게 되고, 결국 실제 사고를 놓치게 된다.
+종료 코드를 나눈 것도 같은 이유다. cron이나 상위 감시 도구는 종료 코드로 성패를 판단하므로,
+경고에도 `exit 1`을 내면 모든 경고가 장애로 인식된다.
+
+프로세스와 포트를 모두 확인하는 이유는, 프로세스가 살아 있어도 포트를 잡지 못하면
+외부에서는 서비스 불가 상태이기 때문이다. 둘 중 하나만으로는 정상 여부를 판단할 수 없다.
+
+실제로 각 시나리오를 재현해 동작을 확인했다.
 
 | 시나리오 | 출력 | exit |
 |---|---|---|
@@ -323,22 +414,25 @@ DISK Used  : 1%
 
 | 지표 | 방식 | 이유 |
 |---|---|---|
-| CPU | `/proc/stat`을 1초 간격 2회 읽어 차분 계산 | 1회만 읽으면 부팅 이후 누적 평균이 나와 현재 부하를 알 수 없다 |
-| MEM | `/proc/meminfo`의 `MemAvailable` 기준 | `MemFree`를 쓰면 캐시를 사용 중으로 세어 실제보다 크게 나온다 |
+| CPU | `/proc/stat`을 1초 간격 2회 읽어 차분 계산 | 값이 부팅 이후 누적이라, 한 번만 읽으면 현재 부하가 아니라 평균이 나온다 |
+| MEM | `/proc/meminfo`의 `MemAvailable` 기준 | `MemFree`는 디스크 캐시를 사용 중으로 세어 실제보다 크게 나온다 |
 | DISK | `df -P /`의 Used % | 루트 파티션 기준 |
 
-CPU 계산 검증 (11코어)
+헬스체크가 "죽었는가"라는 이분법이라 이미 죽은 뒤에야 알려주는 반면,
+자원 수치는 "얼마나 위태로운가"를 알려주므로 멈추기 전에 대응할 수 있다.
+
+CPU 계산이 정확한지는 부하를 걸어 대조 검증했다.
 
 | 부하 | 측정값 | 이론값 |
 |---|---|---|
 | 없음 | 0.3% | ~0% |
-| 1코어 100% | 9.2% | 9.1% |
+| 1코어 100% | 9.2% | 9.1% (11코어 중 1개) |
 | 4코어 100% | 37.5% | 36.4% |
 
-**설명 포인트**
-- 모든 이상을 긴급으로 처리하면 알림이 과다해져 실제 사고를 놓친다. 그래서 "중단시킬 실패"와 "기록만 할 이상"을 구분했다.
-- 프로세스와 포트를 모두 확인하는 이유는, 프로세스가 살아 있어도 포트를 잡지 못하면 서비스는 불가능하기 때문이다.
-- 임계값 CPU 20% / MEM 10%는 제공 앱의 부하 패턴(메모리 0 → 256MB → 0 순환)에서 경고가 실제로 발생하도록 설계된 값이다. MEM은 `10.2%`로 자연 발생했고, CPU는 본 VM이 11코어여서 앱이 1코어를 점유해도 전체로는 9%대라 임계값에 닿지 않으므로 4코어 인위 부하로 로직을 검증했다.
+임계값 CPU 20%, MEM 10%는 제공 앱의 부하 패턴(메모리를 0에서 256MB까지 올렸다 내리는 순환)에서
+경고가 실제로 발생하도록 설계된 값이다. MEM은 `10.2%`로 자연 발생했고,
+CPU는 본 환경이 11코어여서 앱이 1코어를 점유해도 전체로는 9%대에 그치므로
+판정 로직 검증을 위해 4코어 인위 부하를 걸어 확인했다.
 
 **증거** — [`docs/logs/06-monitor-run.log`](docs/logs/06-monitor-run.log) · [monitor-run.png](docs/screenshots/monitor-run.png)
 
@@ -354,21 +448,36 @@ CPU 계산 검증 (11코어)
 [2026-09-17 14:57:02] PID:5454 CPU:0.5% MEM:7.9% DISK_USED:1%
 ```
 
+사람이 읽으면서 기계도 파싱할 수 있도록 키와 순서를 고정했다.
+시각을 `YYYY-MM-DD HH:MM:SS`로 둔 것은 문자열 정렬이 곧 시간 정렬이 되고,
+기간 필터를 단순 문자열 검색으로 할 수 있기 때문이다.
+
+기록에는 `>>`를 썼다. `>`는 파일을 비우고 새로 쓰므로, 매분 실행되는 스크립트에서 `>`를 쓰면
+항상 최근 한 줄만 남고 이전 기록이 모두 사라진다. 로그의 가치는 시계열에 있다.
+한 시점의 값만으로는 원래 그런 것인지 지금 이상한 것인지 판단할 수 없고,
+과거와 비교해야 "언제부터 이상해졌는가"를 특정할 수 있다.
+
 **용량 관리** — `monitor.sh`의 `rotate_log()`
 
 ```
-monitor.log 가 10MB 초과 시
+monitor.log 가 10MB 를 초과하면
 
-  monitor.log.9   삭제
-  monitor.log.8 → .9 ,  ... ,  monitor.log.1 → .2
-  monitor.log   → monitor.log.1
+  monitor.log.9    → 삭제
+  monitor.log.8    → monitor.log.9
+     ...
+  monitor.log.1    → monitor.log.2
+  monitor.log      → monitor.log.1
 ```
 
-원본 + `.1`~`.9`로 최대 10개를 유지한다.
+번호가 밀려나다 9를 넘으면 사라지므로 원본 + `.1`~`.9`로 최대 10개가 유지되고,
+로그 총량에 상한이 생긴다.
 
-**설명 포인트**
-- 로그는 남기는 것과 지우는 것이 한 쌍이다. 매분 쌓이는 로그를 방치하면 디스크가 가득 차 서버가 정지하며, 이는 현업에서 흔한 장애 원인이다.
-- 장애 발생 시 로그의 시계열을 거슬러 올라가면 "언제부터 이상해졌는가"를 특정할 수 있다. 로그가 없으면 원인 분석이 추측에 의존하고 같은 장애가 반복된다.
+로그는 남기는 것과 지우는 것이 한 쌍이다. 매분 쌓이는 로그를 방치하면 디스크가 가득 차
+서버 전체가 정지하며, 이는 로그를 남기려고 넣은 장치가 오히려 장애 원인이 되는 경우다.
+
+`logrotate`라는 전용 도구도 있으나 스크립트 내부에 직접 구현했다.
+logrotate는 보통 하루 한 번 실행되어 급증 상황에 늦게 반응하고,
+설정 파일이 `/etc`에 있어 root 권한이 필요한데 `monitor.sh`는 일반 계정으로 동작해야 한다.
 
 **증거** — [`docs/logs/07-monitor-cumulative.log`](docs/logs/07-monitor-cumulative.log)
 
@@ -383,7 +492,16 @@ printf '* * * * * /home/agent-admin/agent-app/bin/monitor.sh >> /var/log/agent-a
   | sudo crontab -u agent-admin -
 ```
 
-**확인** — 75초간 사람의 개입 없이 방치
+앞의 별 다섯 개는 순서대로 분, 시, 일, 월, 요일이며 모두 `*`이면 매분 실행을 뜻한다.
+실행 계정은 `agent-admin`으로 지정했다. `agent-core` 소속이라
+`agent-dev` 소유의 `monitor.sh`를 그룹 권한으로 실행할 수 있고, 수정 권한은 없다.
+
+출력을 파일로 보낸 것은 cron이 표준 출력을 메일로 보내려 하기 때문이며,
+`2>&1`로 에러까지 함께 기록해 문제 발생 시 원인을 확인할 수 있게 했다.
+
+**확인**
+
+사람의 개입 없이 75초를 방치한 뒤 로그가 증가하는지 확인했다.
 
 ```
 2026-09-17 14:52:01   31 /var/log/agent-app/monitor.log
@@ -398,9 +516,11 @@ Sep 17 14:52:01 agent CRON[6307]: (agent-admin) CMD (...)
 Sep 17 14:53:01 agent CRON[6370]: (agent-admin) CMD (...)
 ```
 
-**설명 포인트**
-- 실행 계정은 `agent-admin`이다. `agent-core` 소속이므로 `agent-dev` 소유의 `monitor.sh`(`750`)를 그룹 권한 `r-x`로 실행할 수 있다. 수정 권한은 없다.
-- 사람이 매분 서버를 들여다볼 수 없으므로 점검 자체를 자동화해야 한다.
+증거를 두 곳에서 확보했다. `monitor.log`만으로는 수동 실행과 구분되지 않으므로,
+cron이 실제로 호출했음을 보여주는 `syslog`의 CRON 기록을 함께 확인했다.
+
+사람이 매분 서버 상태를 확인할 수는 없으므로 점검 자체를 자동화해야 한다.
+자동화하면 사람이 보지 않는 시간대의 상태도 기록으로 남는다.
 
 **증거** — [`docs/logs/08-cron.log`](docs/logs/08-cron.log)
 
