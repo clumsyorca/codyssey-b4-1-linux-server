@@ -50,42 +50,32 @@ B4-1/
 
 | 항목 | 값 |
 |---|---|
-| OS | Ubuntu 22.04.5 LTS |
-| 아키텍처 | aarch64 (arm64) |
+| OS | Ubuntu 22.04.5 LTS / aarch64 |
 | 자원 | 11 vCPU / 8,999 MB RAM |
 | 가상화 | OrbStack Linux Machine (`agent`) |
-| VM IP | 192.168.139.141 |
-
-최종 구성은 다음과 같다.
 
 ```
-                      외부 (호스트 macOS)
-                            │
-                  20022 ────┼──── 15034        ← 이 두 포트만 통과
-                            │
-        ┌───────────────────▼────────────────────┐
-        │  UFW   기본 정책: 들어오는 접속 전부 차단  │
-        ├────────────────────────────────────────┤
-        │  sshd      :20022   (root 로그인 차단)   │
-        │  agent_app :15034                      │
-        │       ▲                                │
-        │       │ 감시                            │
-        │  monitor.sh ──▶ /var/log/agent-app/monitor.log
-        │       ▲                                │
-        │       │ 매분 호출                       │
-        │  crontab (agent-admin)                 │
-        └────────────────────────────────────────┘
+                      외부
+                        │
+              20022 ────┼──── 15034        ← 이 두 포트만 통과
+                        │
+    ┌───────────────────▼────────────────────┐
+    │  UFW   기본 정책: 들어오는 접속 전부 차단  │
+    ├────────────────────────────────────────┤
+    │  sshd      :20022   (root 로그인 차단)   │
+    │  agent_app :15034                      │
+    │       ▲                                │
+    │  monitor.sh ──▶ /var/log/agent-app/monitor.log
+    │       ▲                                │
+    │  crontab (agent-admin)  매분 호출        │
+    └────────────────────────────────────────┘
 ```
 
 확인 명령은 모두 VM 안에서 실행하며, 애플리케이션이 구동 중인 상태를 전제로 한다.
+PID 두 개가 출력되지 않으면 아래로 기동한다.
 
 ```bash
 pgrep -x agent_app
-```
-
-PID 두 개(부모·자식)가 출력되면 구동 중이다. 없다면 아래로 기동한다.
-
-```bash
 sudo -iu agent-admin bash -lc 'nohup "$AGENT_HOME/agent_app" >> "$AGENT_LOG_DIR/agent-app.out" 2>&1 &'
 ```
 
@@ -170,20 +160,15 @@ root@localhost: Permission denied (publickey,password).
 
 **이 조치가 막는 것과 막지 못하는 것**
 
-공격자를 두 종류로 나눠 보면 이 설정의 효과가 분명해진다.
+| 공격자 | 이 조치의 효과 |
+|---|---|
+| **자동화 봇** (대다수) — IP 대역을 훑으며 22번에 `root` 비밀번호를 무한 대입 | **거의 완전히 차단.** 22번이 닫혀 있으면 다음 IP 로 넘어간다 |
+| **표적 공격자** — 이 서버를 특정해 포트 스캔부터 수행 | **막지 못한다.** 20022 도 스캔으로 발견된다 |
 
-| 공격자 | 행동 | 이 조치의 효과 |
-|---|---|---|
-| **자동화 봇** (대다수) | IP 대역을 훑으며 22번에 `root` 비밀번호를 무한 대입 | **거의 완전히 차단.** 22번이 닫혀 있으면 다음 IP로 넘어간다 |
-| **표적 공격자** | 이 서버를 특정해 포트 스캔부터 수행 | **막지 못한다.** 20022도 스캔으로 발견된다 |
-
-그럼에도 하는 이유는 세 가지다. 첫째, 계정명을 모르면 비밀번호 대입을 **시작조차 할 수 없다.**
-둘째, 봇 공격이 사라지면 인증 로그가 조용해져 **진짜 이상 징후가 눈에 띈다.** 하루 수만 건의
-실패 로그에 묻히면 표적 공격을 발견할 수 없다. 셋째, 방화벽·키 인증과 겹쳐 쌓으면 전체
-난이도가 올라간다.
-
-근본적으로는 비밀번호 인증을 끄고 공개키 인증만 허용하는 쪽이 더 강력하다. 포트 변경은
-비용 대비 효과가 큰 1차 조치로 이해한다.
+그럼에도 하는 이유는, 계정명을 모르면 비밀번호 대입을 **시작조차 할 수 없고**, 봇 공격이
+사라지면 인증 로그가 조용해져 **진짜 이상 징후가 눈에 띄기** 때문이다. 근본적으로는 비밀번호
+인증을 끄고 공개키 인증만 허용하는 쪽이 더 강력하며, 포트 변경은 비용 대비 효과가 큰
+1차 조치로 이해한다.
 
 <a id="firewall"></a>
 
@@ -342,82 +327,35 @@ sudo chmod 2750 $AGENT_HOME/bin
 
 #### 4.2.3 ACL
 
-**문제 상황**
-
-`AGENT_HOME`은 `agent-admin`의 홈 디렉토리 안에 들어 있다.
+`AGENT_HOME`은 `agent-admin`의 홈 디렉토리 안에 있는데, 그 홈이 이렇게 되어 있었다.
 
 ```
-/home/agent-admin/              ← 복도
-        └── agent-app/          ← 우리가 쓸 방들
-              ├── upload_files/
-              └── api_keys/
+drwxr-x---  agent-admin  agent-admin   /home/agent-admin
+                              ↑
+                         그룹이 개인 그룹
 ```
 
-그런데 복도의 권한이 이렇게 되어 있었다.
+디렉토리에서 `x`는 **통과**를 뜻한다. `agent-dev`와 `agent-test`는 소유자도 그 그룹도 아니라
+맨 뒤 `---`가 적용되어 **복도를 지나갈 수 없었다.** 안쪽 권한을 아무리 잘 줘도 소용이 없다.
 
-```
-drwxr-x---  agent-admin  agent-admin
- └┬┘└┬┘└┬┘      └───┬───┘  └───┬────┘
-  │  │  └ 나머지 사람 : 아무것도 못 함
-  │  └─── 그룹        : agent-admin  (개인 그룹)
-  └────── 소유자       : agent-admin
-```
-
-디렉토리에서 `x`는 **통과**를 뜻한다. `agent-dev`와 `agent-test`는 소유자도 아니고
-`agent-admin` 그룹도 아니므로 맨 뒤의 `---`가 적용되어 **복도를 지나갈 수 없다.**
-안쪽 방의 권한을 아무리 잘 설정해도 거기까지 갈 수가 없다.
-
-**일반 권한으로는 해결되지 않는다**
-
-복도의 그룹을 `agent-common`으로 바꾸면 되지 않을까 싶지만, 그러면 `agent-admin`의
-홈 디렉토리인데 담당 그룹이 남의 것이 되어 원래 의미가 깨진다.
-
-더 근본적으로, 권한 한 줄에는 **그룹을 딱 하나만** 적을 수 있다.
-"소유자는 `agent-admin`, 그런데 `agent-common`도 지나가게 해줘"를 쓸 칸이 없다.
-
-**ACL이 하는 일**
-
-ACL은 기존 권한을 건드리지 않고 **예외를 한 줄 더 붙인다.**
+그런데 일반 권한은 **그룹을 하나만** 지정할 수 있어 여기에 `agent-common`을 추가할 자리가 없다.
+ACL은 기존 권한을 그대로 두고 **예외를 한 줄 더 붙이는** 방식이라 이 한계를 보완한다.
 
 ```bash
-sudo setfacl -m g:agent-common:r-x /home/agent-admin
-#               └───────┬────────┘
-#            agent-common 그룹에게 r-x 를 추가로 부여
-```
-
-원래 권한은 그대로 두고 `agent-common`에게만 통과 권한을 줬다. `w`는 주지 않았다.
-남의 홈 디렉토리에 파일을 만들 이유는 없기 때문이다.
-
-**나머지 디렉토리에도 적용**
-
-```bash
+sudo setfacl -m  g:agent-common:r-x /home/agent-admin          # 상위 통행권
 sudo setfacl -m  g:agent-common:rwx $AGENT_HOME/upload_files
 sudo setfacl -dm g:agent-common:rwx $AGENT_HOME/upload_files
-
 sudo setfacl -m  g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 sudo setfacl -dm g:agent-core:rwx   $AGENT_HOME/api_keys /var/log/agent-app
 ```
 
-같은 명령을 두 번씩 쓴 이유는 `-d`(default) 때문이다.
-
-| 옵션 | 적용 대상 |
-|---|---|
-| `-m` | **지금 있는** 디렉토리 |
-| `-dm` | **앞으로 새로 생길** 파일 |
-
-setgid는 그룹만 물려주고 권한은 물려주지 않는다. `-d`가 없으면 새로 만든 파일이
-`rw-r--r--`가 되어 그룹이 읽기만 가능해진다. 둘이 함께 있어야 공유가 완성된다.
-
-```
-setgid       → 새 파일의 그룹을 물려줌
-default ACL  → 새 파일의 권한을 물려줌
-```
+`-d`(default)는 **앞으로 새로 생길 파일**에 적용된다. setgid가 그룹만 물려주고 권한은
+물려주지 않으므로, 이것이 없으면 새 파일을 그룹이 읽기만 할 수 있다.
 
 **확인**
 
 ```bash
 sudo ls -l /home/agent-admin/agent-app
-sudo ls -ld /var/log/agent-app
 sudo -u agent-test ls /home/agent-admin/agent-app/api_keys
 ```
 
@@ -425,22 +363,13 @@ sudo -u agent-test ls /home/agent-admin/agent-app/api_keys
 drwxrws---+ agent-admin agent-core    api_keys
 drwxr-s---  agent-dev   agent-core    bin
 drwxrws---+ agent-admin agent-common  upload_files
-drwxrws---+ agent-admin agent-core    /var/log/agent-app
 
 ls: cannot open directory '.../api_keys': Permission denied
 ```
 
-끝의 `+`는 ACL이 적용되었다는 표시, 그룹 자리의 `s`는 setgid가 켜졌다는 표시다.
-마지막 줄의 `Permission denied`가 **차단이 실제로 동작한다는 증거**다. 보안 설정은
-허용되는 접근보다 차단되는 접근을 증명하는 것이 중요하다.
-
-| 시험 | 기대 | 결과 |
-|---|---|---|
-| `agent-dev` → `$AGENT_HOME` 진입 | 성공 | ✅ |
-| `agent-test` → `upload_files` 쓰기 | 성공 | ✅ |
-| `agent-test` → `api_keys` 접근 | **차단** | `Permission denied` |
-| `agent-dev` → `api_keys` 접근 | 성공 | ✅ |
-| 신규 파일 속성 | `agent-common` / `rw-rw----` | ✅ |
+끝의 `+`는 ACL, 그룹 자리의 `s`는 setgid가 적용되었다는 표시다. 마지막 줄의
+`Permission denied`가 **차단이 실제로 동작한다는 증거**다. 보안 설정은 허용되는 접근보다
+차단되는 접근을 증명하는 것이 중요하다.
 
 ---
 
@@ -451,20 +380,18 @@ ls: cannot open directory '.../api_keys': Permission denied
 **설정**
 
 ```bash
-# 아키텍처 자동 감지 후 배치 (파일명은 agent_app 으로 통일)
 case "$(uname -m)" in
   x86_64)        APP=agent-app-linux-x86   ;;
   aarch64|arm64) APP=agent-app-linux-arm64 ;;
 esac
 sudo install -o agent-admin -g agent-core -m 750 "app/$APP" "$AGENT_HOME/agent_app"
 
-# 키 파일
 echo 'agent_api_key_test' | sudo -u agent-admin tee $AGENT_HOME/api_keys/secret.key
 sudo chmod 640 $AGENT_HOME/api_keys/secret.key
 ```
 
-제공 바이너리가 x86과 arm64로 나뉘어 있어 자동 감지하되 **파일명을 통일**했다. 그렇게 하지
-않으면 `monitor.sh`가 찾아야 할 프로세스 이름이 환경마다 달라진다.
+바이너리가 x86과 arm64로 나뉘어 있어 자동 감지하되 **파일명을 `agent_app`으로 통일**했다.
+그렇게 하지 않으면 `monitor.sh`가 찾아야 할 프로세스 이름이 환경마다 달라진다.
 
 환경 변수는 `$AGENT_HOME/agent.env` 파일 하나에 모았다.
 
@@ -481,12 +408,12 @@ export AGENT_LOG_DIR=/var/log/agent-app
 로그인 셸이 아니어서 `~/.profile`을 읽지 않으므로, 셸에만 정의하면 **수동 실행은 되고 cron
 실행만 실패**한다.
 
+기동은 백그라운드로 한다. 루트로 실행하지 않은 이유는, 앱이 침해당하면 공격자가 그 앱의
+권한을 그대로 갖게 되기 때문이다.
+
 ```bash
 sudo -iu agent-admin bash -lc 'nohup "$AGENT_HOME/agent_app" >> "$AGENT_LOG_DIR/agent-app.out" 2>&1 &'
 ```
-
-루트로 실행하지 않은 이유는, 앱이 침해당하면 공격자가 그 앱의 권한을 그대로 갖게 되기
-때문이다. `nohup ... &`는 터미널을 닫아도 앱이 계속 동작하게 한다.
 
 **확인**
 
@@ -507,6 +434,8 @@ Agent READY
 
 앱은 기동하면서 계정·환경변수·키파일·포트·로그권한 다섯 가지를 스스로 검사한다.
 즉 **앞 단계의 설정이 모두 올바른지를 이 앱이 대신 확인해 준다.**
+
+**증거** — [`docs/logs/05-app-boot.log`](docs/logs/05-app-boot.log) · [06](docs/screenshots/06-app-ready.png)
 
 ---
 
@@ -662,8 +591,6 @@ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh ; echo "exit=$?"
 ```
 
 ```
-====== SYSTEM MONITOR RESULT ======
-
 [HEALTH CHECK]
 Checking process 'agent_app'... [OK] (PID: 5454)
 Checking port 15034... [OK]
@@ -672,15 +599,13 @@ Checking port 15034... [OK]
 Checking firewall (ufw)... [OK] (active)
 
 [RESOURCE MONITORING]
-CPU Usage  : 0.5%
-MEM Usage  : 8.8%
-DISK Used  : 1%
+CPU Usage  : 0.5%     MEM Usage : 8.8%     DISK Used : 1%
 
 [OK] All resource usage within thresholds.
 [INFO] Log appended: /var/log/agent-app/monitor.log
 ```
 
-비정상 상황에서의 동작은 앱을 멈춰서 확인했다. 확인한 뒤에는 다시 기동한다.
+비정상 상황은 앱을 멈춰서 확인했다. 확인한 뒤에는 다시 기동한다.
 
 ```bash
 sudo pkill -x agent_app
@@ -692,8 +617,7 @@ sudo -u agent-admin /home/agent-admin/agent-app/bin/monitor.sh ; echo "exit=$?"
 | 정상 | 전 항목 `[OK]` | 0 |
 | 앱 중단 | `[CRITICAL] Process 'agent_app' is not running.` | **1** |
 | 방화벽 꺼짐 | `[WARNING] Firewall (ufw) is INACTIVE.` 후 로그까지 기록 | 0 |
-| CPU 초과 | `[WARNING] CPU threshold exceeded (36.6% > 20%)` | 0 |
-| MEM 초과 | `[WARNING] MEM threshold exceeded (10.2% > 10%)` | 0 |
+| 임계값 초과 | `[WARNING] CPU threshold exceeded (36.6% > 20%)` | 0 |
 
 ---
 
@@ -864,81 +788,3 @@ truncate -s 0 파일              # 파일은 두고 내용만 비움
 신호다.
 
 ---
-
-## 7. 과제 목표 점검
-
-### 7-1. SSH 포트 변경과 Root 원격 접속 차단이 왜 기본 보안인가
-
-포트 22와 계정명 `root`는 모든 리눅스에 공통으로 존재한다. 그래서 자동화된 공격 프로그램은
-인터넷의 서버를 훑으며 22번 포트로 접속해 `root` 계정의 비밀번호를 반복해서 대입한다.
-
-포트를 20022로 옮기면 이 무차별 스캔 대부분이 대상을 찾지 못한다. Root 로그인을 막으면
-공격자는 비밀번호 이전에 **유효한 계정명부터 알아내야** 하므로 공격 난이도가 한 단계 올라간다.
-
-둘 다 근본적인 방어 수단은 아니다. 포트 스캔으로 20022를 찾아낼 수 있고 계정명도 유출될 수
-있다. 그러나 무의미한 공격 시도와 로그 소음을 줄여 **실제 위협을 식별하기 쉽게** 만든다는
-점에서 기본 보안에 해당한다.
-
-### 7-2. "필요 포트만 허용"하는 방화벽 정책을 구성하고 검증하는 법
-
-기본 정책을 `deny incoming`으로 두고 필요한 포트만 명시적으로 여는 화이트리스트 방식이다.
-차단해야 할 대상은 무한하지만 열어야 할 대상은 유한하므로, "위험한 것을 막는" 블랙리스트보다
-안전하다. 포트를 먼저 허용하고 방화벽을 켜는 순서를 지켜야 접속이 끊기지 않는다.
-
-검증은 `ufw status`로 규칙을 확인하는 것만으로는 부족하다. 규칙이 등록돼 있어도 실제로
-동작하지 않을 수 있으므로 **외부 호스트에서 접속을 시도**해야 한다.
-`Connection refused`는 방화벽 없이 포트만 닫혀 있는 상태이고, `Operation timed out`은
-방화벽이 패킷을 응답 없이 버리는 상태다. 후자여야 방화벽이 동작하는 것이며,
-이 방식은 공격자에게 포트나 호스트의 존재조차 알려주지 않는다.
-
-### 7-3. 역할 기반 계정/그룹과 ACL로 공유/보안 디렉토리를 분리하는 이유
-
-권한은 직무 수행에 필요한 최소 범위로만 부여해야 사고가 발생해도 피해 범위가 제한된다.
-QA 담당자가 API 키를 볼 업무상 이유는 없다. 다만 권한을 "소유자 / 나머지 전부"로만 나누면
-일부에게만 열어주는 통제가 불가능하므로, 그룹이라는 중간 단계가 필요하다.
-
-일반 권한은 그룹을 **하나만** 지정할 수 있다는 한계가 있다. 본 과제의 `/home/agent-admin`은
-그룹이 개인 그룹 `agent-admin`이어서 다른 계정에게 통과 권한(`x`)을 줄 자리가 없었고,
-ACL로만 해결할 수 있었다. 디렉토리의 `x`는 "통과"를 뜻하므로, 이것이 없으면 하위 디렉토리
-권한을 아무리 잘 설정해도 그 안으로 들어가는 것 자체가 불가능하다.
-
-### 7-4. 환경 변수로 실행 환경을 고정하는 이유와 검증 방법
-
-경로와 포트를 코드에 직접 적으면 개발 서버와 운영 서버에서 코드가 서로 달라진다.
-환경 변수로 분리하면 **같은 바이너리가 환경만 바꿔 동작**한다.
-
-검증은 값 자체를 확인하는 것으로 부족하고, **실행 주체와 실행 경로를 바꿔가며** 확인해야 한다.
-로그인 셸에서는 보이지만 cron에서는 보이지 않는 경우가 실제로 발생한다. cron은 로그인 셸이
-아니어서 `~/.profile`을 읽지 않기 때문이다. 이 때문에 환경 변수를 셸 프로필이 아닌
-`agent.env` 파일 한 곳에 정의하고, 로그인 셸과 `monitor.sh`가 각각 그 파일을 읽도록 했다.
-
-### 7-5. 쉘 스크립트로 상태를 수집하고 로그로 남겨 문제를 추적하는 흐름
-
-```
-① 살아 있는가   프로세스 존재 → 포트 LISTEN      실패 시 exit 1
-② 여유가 있는가  CPU / MEM / DISK 수집            임계값 초과 시 WARNING
-③ 기록한다      타임스탬프와 함께 로그에 append
-④ 반복한다      cron 이 매분 호출
-```
-
-자원 수치는 서비스가 동작할 때만 의미가 있으므로 "살아 있는가"를 먼저 판정하고, 실패하면
-그 자리에서 종료한다. 프로세스가 살아 있어도 포트를 잡지 못하면 외부에서는 서비스를 이용할
-수 없으므로 둘을 모두 확인한다.
-
-프로세스 중단은 즉시 대응할 사고지만 방화벽 비활성은 서비스가 동작하는 상태의 보안 이슈다.
-모든 이상을 긴급으로 처리하면 알림이 과다해져 정작 실제 사고를 놓치게 되므로 등급을 나눴다.
-
-장애가 발생하면 로그의 시계열을 거슬러 올라가 "언제부터 수치가 이상해졌는가"를 특정할 수 있다.
-로그가 없으면 원인 분석이 추측에 의존하게 되고, 원인을 모르므로 같은 장애가 반복된다.
-
-### 7-6. crontab 주기 실행과 로그 보존 정책이 필요한 이유
-
-사람이 매분 서버 상태를 확인할 수는 없다. 점검 자체를 자동화해야 하며, 자동화하면 사람이
-보지 않는 새벽 시간의 상태도 기록으로 남는다.
-
-동시에, 매분 한 줄씩 쌓이는 로그를 방치하면 시간이 지나 디스크가 가득 차고 그 순간 서버
-전체가 정지한다. 로그를 남기려고 넣은 장치가 오히려 장애 원인이 되는 것이다.
-
-따라서 **로그는 남기는 것과 지우는 것이 한 쌍**이다. 본 과제에서는 `rotate_log()`가 매 실행마다
-크기를 확인해 10MB를 넘으면 회전시키고 최대 10개만 유지한다. 오래된 것부터 자동으로
-삭제되므로 로그 총량에 상한이 생긴다.
