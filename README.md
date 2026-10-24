@@ -24,7 +24,7 @@ B4-1/
 │   └── evidence.sh              증거 로그 생성 헬퍼
 └── docs/
     ├── logs/                    증거 로그 01~09
-    └── screenshots/             증거 스크린샷
+    └── screenshots/             증거 스크린샷 (확인 지점에 주석 표시)
 ```
 
 ---
@@ -35,14 +35,14 @@ B4-1/
 
 | # | 항목 | 수행 내역 | 로그 | 스크린샷 |
 |---|---|---|---|---|
-| ① | SSH 포트 변경(20022) 및 Root 원격 접속 차단 | [4.1.1](#ssh) | [01-ssh.log](docs/logs/01-ssh.log) | [ssh-login.png](docs/screenshots/ssh-login.png) |
-| ② | 방화벽 활성화 및 20022/tcp, 15034/tcp만 허용 | [4.1.2](#firewall) | [02-firewall.log](docs/logs/02-firewall.log) | [ufw-status.png](docs/screenshots/ufw-status.png) |
-| ③ | 계정/그룹 생성 확인 | [4.2.1](#users) | [03-users-groups.log](docs/logs/03-users-groups.log) | — |
-| ④ | 디렉토리 구조 및 권한(ACL 포함) 확인 | [4.2.2](#dirs) · [4.2.3](#acl) | [04-directories-acl.log](docs/logs/04-directories-acl.log) | — |
-| ⑤ | 앱 Boot Sequence 5단계 [OK] 및 "Agent READY" | [4.3](#app) | [05-app-boot.log](docs/logs/05-app-boot.log) | [app-ready.png](docs/screenshots/app-ready.png) |
-| ⑥ | monitor.sh 실행 결과(프로세스/포트/리소스/경고) | [4.4](#monitor) | [06-monitor-run.log](docs/logs/06-monitor-run.log) | [monitor-run.png](docs/screenshots/monitor-run.png) |
-| ⑦ | monitor.log 누적 기록 확인 | [4.4.4](#logging) | [07-monitor-cumulative.log](docs/logs/07-monitor-cumulative.log) | — |
-| ⑧ | crontab 매분 실행 등록 및 자동 실행 확인 | [4.5](#cron) | [08-cron.log](docs/logs/08-cron.log) | — |
+| ① | SSH 포트 변경(20022) 및 Root 원격 접속 차단 | [4.1.1](#ssh) | [01-ssh.log](docs/logs/01-ssh.log) | [01](docs/screenshots/01-ssh-root-block.png) · [02](docs/screenshots/02-ssh-login.png) |
+| ② | 방화벽 활성화 및 20022/tcp, 15034/tcp만 허용 | [4.1.2](#firewall) | [02-firewall.log](docs/logs/02-firewall.log) | [03](docs/screenshots/03-ufw-status.png) |
+| ③ | 계정/그룹 생성 확인 | [4.2.1](#users) | [03-users-groups.log](docs/logs/03-users-groups.log) | [04](docs/screenshots/04-users-groups.png) |
+| ④ | 디렉토리 구조 및 권한(ACL 포함) 확인 | [4.2.2](#dirs) · [4.2.3](#acl) | [04-directories-acl.log](docs/logs/04-directories-acl.log) | [05](docs/screenshots/05-dirs-acl.png) |
+| ⑤ | 앱 Boot Sequence 5단계 [OK] 및 "Agent READY" | [4.3](#app) | [05-app-boot.log](docs/logs/05-app-boot.log) | [06](docs/screenshots/06-app-ready.png) |
+| ⑥ | monitor.sh 실행 결과(프로세스/포트/리소스/경고) | [4.4](#monitor) | [06-monitor-run.log](docs/logs/06-monitor-run.log) | [07](docs/screenshots/07-monitor-ok.png) · [08](docs/screenshots/08-monitor-exit1.png) |
+| ⑦ | monitor.log 누적 기록 확인 | [4.4.4](#logging) | [07-monitor-cumulative.log](docs/logs/07-monitor-cumulative.log) | [10](docs/screenshots/10-log-rotate.png) |
+| ⑧ | crontab 매분 실행 등록 및 자동 실행 확인 | [4.5](#cron) | [08-cron.log](docs/logs/08-cron.log) | [09](docs/screenshots/09-cron.png) |
 
 ---
 
